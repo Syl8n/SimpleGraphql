@@ -1,4 +1,3 @@
-var GraphQLSchema = require('graphql').GraphQLSchema;
 var GraphQLObjectType = require('graphql').GraphQLObjectType;
 var GraphQLList = require('graphql').GraphQLList;
 var GraphQLObjectType = require('graphql').GraphQLObjectType;
@@ -9,6 +8,10 @@ var GraphQLInt = require('graphql').GraphQLInt;
 var GraphQLDate = require('graphql-date');
 var StudentModel = require('../model/Student');
 
+var jwt = require("jsonwebtoken");
+var bcrypt = require("bcrypt");
+const config = require('../config/config');
+
 const studentType = new GraphQLObjectType({
     name: 'student',
     fields: function () {
@@ -16,151 +19,163 @@ const studentType = new GraphQLObjectType({
             _id: {
                 type: GraphQLString
             },
+            password: {
+                type: GraphQLString,
+            },
             firstName: {
                 type: GraphQLString
             },
             lastName: {
                 type: GraphQLString
             },
-            email: {
-                type: GraphQLString
-            },
-            college: {
-                type: GraphQLString
-            },
             program: {
                 type: GraphQLString
             },
-            startingYear: {
-                type: GraphQLInt
-            }
+            courses: {
+                type: GraphQLString,
+            },
+            token: {
+                type: GraphQLString,
+            },
         }
     }
 });
 
-const queryType = new GraphQLObjectType({
-    name: 'Query',
-    fields: function () {
-        return {
-            students: {
-                type: new GraphQLList(studentType),
-                resolve: function () {
-                    const students = StudentModel.find().exec()
-                    if (!students) {
-                        throw new Error('Error')
-                    }
-                    return students
-                }
-            },
-            student: {
-                type: studentType,
-                args: {
-                    id: {
-                        name: '_id',
-                        type: GraphQLString
-                    }
-                },
-                resolve: function (root, params) {
-                    const studentInfo = StudentModel.findById(params.id).exec()
-                    if (!studentInfo) {
-                        throw new Error('Error')
-                    }
-                    return studentInfo
-                }
-            }
+const queryType = {
+    students: {
+      type: new GraphQLList(studentType),
+      resolve: function () {
+        const students = StudentModel.find().exec();
+        if (!students) {
+          throw new Error("Error");
         }
-    }
-});
+        return students;
+      },
+    },
+};
 
-const mutation = new GraphQLObjectType({
-    name: 'Mutation',
-    fields: function () {
-        return {
-            addStudent: {
-                type: studentType,
-                args: {
-                    firstName: {
-                        type: new GraphQLNonNull(GraphQLString)
-                    },
-                    lastName: {
-                        type: new GraphQLNonNull(GraphQLString)
-                    },
-                    email: {
-                        type: new GraphQLNonNull(GraphQLString)
-                    },
-                    college: {
-                        type: new GraphQLNonNull(GraphQLString)
-                    },
-                    program: {
-                        type: new GraphQLNonNull(GraphQLString)
-                    },
-                    startingYear: {
-                        type: new GraphQLNonNull(GraphQLInt)
-                    }
-                },
-                resolve: function (root, params) {
-                    const studentModel = new StudentModel(params);
-                    const newStudent = studentModel.save();
-                    if (!newStudent) {
-                        throw new Error('Error');
-                    }
-                    return newStudent
-                }
-            },
-            updateStudent: {
-                type: studentType,
-                args: {
-                    id: {
-                        name: 'id',
-                        type: new GraphQLNonNull(GraphQLString)
-                    },
-                    firstName: {
-                        type: new GraphQLNonNull(GraphQLString)
-                    },
-                    lastName: {
-                        type: new GraphQLNonNull(GraphQLString)
-                    },
-                    email: {
-                        type: new GraphQLNonNull(GraphQLString)
-                    },
-                    college: {
-                        type: new GraphQLNonNull(GraphQLString)
-                    },
-                    program: {
-                        type: new GraphQLNonNull(GraphQLString)
-                    },
-                    startingYear: {
-                        type: new GraphQLNonNull(GraphQLInt)
-                    }
-
-                },
-                resolve(root, params) {
-                    return StudentModel.findByIdAndUpdate(params.id, {
-                        firstName: params.firstName,
-                        lastName: params.lastName, email: params.email, college: params.college,
-                        program: params.program, startingYear: params.startingYear
-                    }, function (err) {
-                        if (err) return next(err);
-                    });
-                }
-            },
-            deleteStudent: {
-                type: studentType,
-                args: {
-                    id: {
-                        type: new GraphQLNonNull(GraphQLString)
-                    }
-                },
-                resolve(root, params) {
-                    const deletedStudent = StudentModel.findByIdAndRemove(params.id).exec();
-                    if (!deletedStudent) {
-                        throw new Error('Error')
-                    }
-                    return deletedStudent;
-                }
-            }
+const Mutation = {
+    signUp: {
+      type: studentType,
+      args: {
+        firstName: {
+          type: new GraphQLNonNull(GraphQLString),
+        },
+        lastName: {
+          type: new GraphQLNonNull(GraphQLString),
+        },
+        password: {
+          type: new GraphQLNonNull(GraphQLString),
+        },
+        program: {
+          type: new GraphQLNonNull(GraphQLString),
+        },
+      },
+      resolve: async (root, params) => {
+        const hashed = await bcrypt.hash(params.password, 10);
+  
+        const studentModel = new StudentModel({
+          ...params,
+          password: hashed,
+        });
+  
+        const newStudent = studentModel.save();
+        if (!newStudent) {
+          throw new Error("Error");
         }
-    }
-});
+        return jwt.sign({ id: newStudent._id }, config.jwtSecret);
+      },
+    },
+  
+    signIn: {
+      type: studentType,
+      args: {
+        id: {
+          type: new GraphQLNonNull(GraphQLString),
+        },
+        password: {
+          type: new GraphQLNonNull(GraphQLString),
+        },
+      },
+      resolve: async (root, params) => {
+        console.log("password", params.password);
+        const user = await StudentModel.findOne({
+          _id: params.id,
+        }).exec();
+        console.log("user", user);
+        if (!user) {
+          throw new Error("Error");
+        }
+  
+        const valid = await bcrypt.compare(params.password, user.password);
+  
+        if (!valid) {
+          throw new Error("Error signing in");
+        }
+        const tk = jwt.sign({ id: user._id }, config.jwtSecret);
+        console.log(tk);
+        return { token: tk };
+      },
+    },
+  
+    updateUserCourse: {
+      type: studentType,
+      args: {
+        id: {
+          type: new GraphQLNonNull(GraphQLString),
+        },
+        course: {
+          type: new GraphQLNonNull(GraphQLString),
+        },
+      },
+      resolve: async (root, params) => {
+        const user = await StudentModel.findOneAndUpdate(
+          {
+            _id: params.id,
+          },
+          {
+            $addToSet: { courses: params.course },
+          }
+        ).exec();
+  
+        if (!user) {
+          throw new Error("Error");
+        }
+  
+        return user;
+      },
+    },
+  
+    deleteUserCourse: {
+      type: studentType,
+      args: {
+        id: {
+          type: new GraphQLNonNull(GraphQLString),
+        },
+        course: {
+          type: new GraphQLNonNull(GraphQLString),
+        },
+      },
+      resolve: async (root, params) => {
+        const user = await StudentModel.findOneAndUpdate(
+          {
+            _id: params.id,
+          },
+          {
+            $pull: { courses: params.course },
+          }
+        ).exec();
+  
+        if (!user) {
+          throw new Error("Error");
+        }
+  
+        return user;
+      },
+    },
+};
 
-module.exports = new GraphQLSchema({ query: queryType, mutation: mutation });
+module.exports = {
+    studentQuery: queryType,
+    studentMutation: Mutation,
+};

@@ -3,7 +3,7 @@ process.env.NODE_ENV = process.env.NODE_ENV || 'development';
 const mongooseConfig = require('./config/mongoose'),
     expressConfig = require('./config/express'),
     { graphqlHTTP } = require('express-graphql'),
-    schema = require('./graphql/studentSchemas'),
+    schema = require('./graphql/schemas'),
     cors = require('cors'),
     port = 5000;
 

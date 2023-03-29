@@ -3,12 +3,11 @@ const Schema = mongoose.Schema;
 
 const StudentSchema = new Schema({
     id: String,
+    password: String,
     firstName: String,
     lastName: String,
-    email: String,
-    college: String,
     program: String,
-    startingYear: { type: Number, min: 2015, max: 2022},	
+    token: String
 });
 
 module.exports = mongoose.model('Student', StudentSchema);
